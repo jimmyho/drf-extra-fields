@@ -10,7 +10,7 @@ from django.utils.translation import ugettext_lazy as _
 from rest_framework.fields import (
     DateField,
     DateTimeField,
-    DictField,
+    ListField,
     FloatField,
     ImageField,
     IntegerField,
@@ -68,8 +68,13 @@ class Base64ImageField(ImageField):
         return extension
 
 
-class RangeField(DictField):
+class RangeField(ListField):
+    """
+    RangeField as a list.
+        [<lower>, <upper>, <bounds>]
 
+        <bounds> is optional
+    """
     range_type = None
 
     default_error_messages = {
@@ -79,41 +84,38 @@ class RangeField(DictField):
 
     def to_internal_value(self, data):
         """
-        Range instances <- Dicts of primitive datatypes.
+        Range instances <- Lists of primitive datatypes.
         """
         if html.is_html_input(data):
             data = html.parse_html_dict(data)
-        if not isinstance(data, dict):
-            self.fail('not_a_dict', input_type=type(data).__name__)
+        if not isinstance(data, (list, tuple,)):
+            self.fail('not_a_list', input_type=type(data).__name__)
         validated_dict = {}
-        for key in ('lower', 'upper'):
+        for field in ('lower', 'upper',):
             try:
-                value = data.pop(key)
-            except KeyError:
-                continue
-            validated_dict[six.text_type(key)] = self.child.run_validation(value)
-        for key in ('bounds', 'empty'):
-            try:
-                value = data.pop(key)
-            except KeyError:
-                continue
-            validated_dict[six.text_type(key)] = value
+                validated_dict[field] = self.child.run_validation(data.pop(0))
+            except:
+                validated_dict[field] = None
+        try:
+            validated_dict['bounds'] = data.pop(0)
+        except IndexError:
+            pass
+
         if data:
-            self.fail('too_much_content', extra=', '.join(map(str, data.keys())))
+            self.fail('too_much_content', extra=', '.join(map(str, data)))
+
         return self.range_type(**validated_dict)
 
     def to_representation(self, value):
         """
-        Range instances -> dicts of primitive datatypes.
+        Range instances -> lists of primitive datatypes.
         """
         if value.isempty:
             return {'empty': True}
         lower = self.child.to_representation(value.lower) if value.lower is not None else None
         upper = self.child.to_representation(value.upper) if value.upper is not None else None
-        return {'lower': lower,
-                'upper': upper,
-                'bounds': value._bounds}
 
+        return [lower, upper, value._bounds]
 
 class IntegerRangeField(RangeField):
     child = IntegerField()
